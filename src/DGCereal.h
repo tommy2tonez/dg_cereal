@@ -265,34 +265,60 @@ namespace dg::serializer{
 
     };
 
-    template <class SZ_TYPE, class ...Args>
-    struct MultiDimensionalSizeContainer: public MultiDimensionalSizeContainer<Args...>{
-        
-        using Base = MultiDimensionalSizeContainer<Args...>;
-        SZ_TYPE& sz;
+    template <class T>
+    class Transformable{
 
-        MultiDimensionalSizeContainer(SZ_TYPE& sz, Args&& ...args): sz(sz), Base(std::forward<Args>(args)...){} 
+        public:
+
+            template <class T1>
+            static auto transform(T1&& val){
+
+                return T::transform(std::forward<T1>(val)); 
+
+            }
+
+            template <class T1>
+            static auto inverse(T1&& val){
+
+                return T::inverse(std::forward<T1>(val));
+                
+            }
 
     };
 
-    template <class SZ_TYPE>
-    struct MultiDimensionalSizeContainer{
+    class DefaultTransformFunctor : public Transformable<DefaultTransformFunctor>{
 
-        SZ_TYPE& sz;
+        public:
 
-        MultiDimensionalSizeContainer(SZ_TYPE& sz): sz(sz){}
+            template <class T1>
+            static auto transform(T1&& val){
 
-    };
+                if constexpr(dgstd::is_reference<T1>::value){
 
-    template <class T, class _Allocator_Policy, class ...Args>
-    struct MultiDimensionalStableLinearDataWrapper: public MultiDimensionalSizeContainer<Args...>{
+                    return std::ref(val);
 
-        using ptr_type = typename PtrTypeGetter<T, Args...>::type;
-        using Base = MultiDimensionalSizeContainer<Args...>; 
+                } else{
 
-        ptr_type& ptr;
+                    return val; 
 
-        MultiDimensionalStableLinearDataWrapper(ptr_type& ptr, Args&& ...args): ptr(ptr), Base(std::forward<Args>(args)...){}
+                }
+
+            }
+
+            template <class T1>
+            static auto inverse(T1&& val){
+
+                if constexpr(dgstd::is_reference<T1>::value){
+
+                    return std::ref(val);
+
+                } else{
+
+                    return val; 
+
+                }
+
+            }
 
     };
 
@@ -327,7 +353,7 @@ namespace dg::serializer{
 
     };
 
-    template <class T, class RegisteredClasses>
+    template <class T, class RegisteredClasses, class _Allocator_Policy>
     struct StableAutoPolymorphicPtrWrapper{
 
         T *& ptr;
@@ -566,6 +592,30 @@ namespace dg::serializer{
 namespace dg::serializer::pointer{
 
     template <class T>
+    class SharedPtrGeneratorSingleton{
+
+        private:
+
+            static inline std::unordered_map<uintptr_t, std::shared_ptr<T>> data{};
+        
+        public:
+
+            static inline std::shared_ptr<T>& get(T * ptr){
+
+            }
+
+            static inline void clear(){
+
+            }
+
+    };
+
+
+};
+
+namespace dg::serializer::pointer::static_pointer{
+
+    template <class T>
     class PointerIDRegisterable{
 
         public:
@@ -623,25 +673,6 @@ namespace dg::serializer::pointer{
             void insert(size_t id, void * ptr){
 
                 return static_cast<T *>(this)->insert(id, ptr);
-
-            }
-
-    };
-
-    template <class T>
-    class SharedPtrGeneratorSingleton{
-
-        private:
-
-            static inline std::unordered_map<uintptr_t, std::shared_ptr<T>> data{};
-        
-        public:
-
-            static inline std::shared_ptr<T> get(T * ptr){
-
-            }
-
-            static inline void clear(){
 
             }
 
@@ -706,7 +737,7 @@ namespace dg::serializer::pointer{
 
 };
 
-namespace dg::serializer::poly_pointer{
+namespace dg::serializer::pointer::poly_pointer{
 
     using PolyClassIDType = uint32_t;
     static inline PolyClassIDType NOT_FOUND_ID = std::numeric_limits<PolyClassIDType>::max();
@@ -731,7 +762,7 @@ namespace dg::serializer::poly_pointer{
         public:
 
             template <class T1, class T2, class ...Args, class ...CB_Args>
-            void resolve(T1 * ptr, DynamicTypeCallbackable<T2>& cb_obj, PolyRegisteredClasses<Args...>& registered, CB_Args&& ...cb_args){
+            void resolve(T1 * ptr, DynamicTypeCallbackable<T2>& cb_obj, const PolyRegisteredClasses<Args...>& registered, CB_Args&& ...cb_args){
 
                 static_cast<T *>(this)->resolve(ptr, cb_obj, registered, std::forward<CB_Args>(cb_args)...);
 
@@ -745,7 +776,7 @@ namespace dg::serializer::poly_pointer{
         public:
 
             template <class T1, class T2, class ...Args, class ...CB_Args>
-            void id_resolve(T1 * ptr, PolyClassIDType id, DynamicTypeCallbackable<T2>& cb_obj, PolyRegisteredClasses<Args...>& registered, CB_Args&& ...cb_args){
+            void id_resolve(T1 * ptr, PolyClassIDType id, DynamicTypeCallbackable<T2>& cb_obj, const PolyRegisteredClasses<Args...>& registered, CB_Args&& ...cb_args){
 
                 static_cast<T *>(this)->id_resolve(ptr, id, cb_obj, registered, std::forward<CB_Args>(cb_args)...);
 
@@ -1740,11 +1771,12 @@ namespace dg::serializer{
             template <class T, class T1>
             void put_helper(Archivable<T>& obj_archive, ContainerSerializable<T1>& container){
 
+                constexpr auto transformable_obj = Transformable<T2>();
                 typename ContainerUtility::SZ_TYPE sz = container.size();
 
                 obj_archive.put(obj_archive, sz);
                 auto iter = container.get_iter();
-                this->put_iter(obj_archive, iter);
+                this->put_iter(obj_archive, iter, transformable_obj);
 
             }
 
@@ -1927,535 +1959,7 @@ namespace dg::serializer{
 
 };
 
-namespace dg::serializer::poly_pointer{
-
-    class EOR{};
-
-    template <class Base, class Derived, class NEXT_>
-    struct RecursiveInheritanceInfo{
-
-        static constexpr PolyClassIDType id = NEXT_::id + 1;
-
-    };
-
-    template <class Base, class Derived>
-    struct RecursiveInheritanceInfo<Base, Derived, EOR>{
-
-        static constexpr PolyClassIDType id = 1;
-
-    };
-
-    template <class NEXT_BASE, class NEXT_DERIVED>
-    struct Joiner{
-
-        template <class Base, class Derived, class NEXT_>
-        constexpr auto join(RecursiveInheritanceInfo<Base, Derived, NEXT_>){
-
-            return RecursiveInheritanceInfo<NEXT_BASE, NEXT_DERIVED, RecursiveInheritanceInfo<Base, Derived, NEXT_>>();
-
-        }
-
-        constexpr auto join(EOR){
-
-            return RecursiveInheritanceInfo<NEXT_BASE, NEXT_DERIVED, EOR>();
-
-        }
-
-    };
-
-    template <class CUR, class ...Args>
-    struct Aggregator{
-
-        template <class Base, class Derived, class NEXT_, class Cur_Inheritance>
-        constexpr auto traverse_n_join(RecursiveInheritanceInfo<Base, Derived, NEXT_>, Cur_Inheritance){
-            
-            auto joined = Joiner<Base, Derived>().join(Cur_Inheritance());
-
-            return traverse_n_join(NEXT_(), joined);
-
-        }
-        
-        template <class Cur_Inheritance>
-        constexpr auto traverse_n_join(EOR, Cur_Inheritance){
-
-            return Cur_Inheritance();
-
-        }
-
-        constexpr auto aggregate(){
-
-            auto base_aggregated = Aggregator<Args...>().aggregate();
-
-            return traverse_n_join(CUR(), base_aggregated);
-
-        }
-
-    };
-
-    template <class CUR>
-    struct Aggregator<CUR>{
-        
-        constexpr auto aggregate(){
-
-            return CUR();
-
-        }
-
-    };
-
-    template <class CUR, class NEXT, class ...Args>
-    struct TraverseParser{
-
-        constexpr auto parse(){
-
-            using next_parser = TraverseParser<CUR, Args...>;
-            auto tmp = next_parser().parse();
-
-            if constexpr(std::is_base_of<CUR, NEXT>::value){
-
-                return Joiner<CUR, NEXT>().join(tmp);
-
-            } else{
-
-                return tmp;
-
-            }
-
-        }
-
-        constexpr auto backward_parse(){
-
-            using next_parser = TraverseParser<CUR, Args...>;
-            auto tmp = next_parser().backward_parse();
-
-            if constexpr(std::is_base_of<NEXT, CUR>::value){
-
-                return Joiner<NEXT, CUR>().join(tmp);
-
-            } else{
-
-                return tmp;
-
-            }
-
-        }
-
-    };
-
-    template <class CUR, class NEXT>
-    struct TraverseParser<CUR, NEXT>{
-
-        constexpr auto parse(){
-
-            if constexpr(std::is_base_of<CUR, NEXT>::value){
-
-                return RecursiveInheritanceInfo<CUR, NEXT, EOR>();
-
-            } else{
-
-                return EOR();
-
-            }
-
-        }
-
-        constexpr auto backward_parse(){
-
-            if constexpr(std::is_base_of<NEXT, CUR>::value){
-
-                return RecursiveInheritanceInfo<NEXT, CUR, EOR>();
-
-            } else{
-
-                return EOR();
-
-            }
-
-        }
-    };
-
-    template <class CUR, class ...Args>
-    struct InheritanceParser{
-
-        constexpr auto parse(){
-
-            using next_parser = InheritanceParser<Args...>;
-            using traverse_parser = TraverseParser<CUR, Args...>; 
-
-            auto tmp = next_parser().parse(); 
-            auto fwd_lst = traverse_parser().parse();
-            auto bwd_lst = traverse_parser().backward_parse();
-
-            return Aggregator<decltype(tmp), decltype(fwd_lst), decltype(bwd_lst)>().aggregate(); 
-
-
-        };
-
-    };
-
-    template <class CUR>
-    struct InheritanceParser<CUR>{
-
-        constexpr auto parse(){
-
-            return EOR();
-
-        }
-
-    };
-
-    template <class Key_Base>
-    struct BaseSpecificInheritanceGetter{
-
-        public:
-
-            template <class Base, class Derived, class NEXT_>
-            constexpr auto get(RecursiveInheritanceInfo<Base, Derived, NEXT_>){
-
-                return BaseSpecificInheritanceGetter<Key_Base>().get(NEXT_());
-
-            }
-
-            template <class Derived, class NEXT_>
-            constexpr auto get(RecursiveInheritanceInfo<Key_Base, Derived, NEXT_>){
-
-                auto rs = BaseSpecificInheritanceGetter<Key_Base>().get(NEXT_());
-                
-                return Joiner<Key_Base, Derived>().join(rs); 
-
-            }
-
-            constexpr auto get(EOR){
-
-                return EOR();
-
-            }
-
-    };
-
-    template <class Base>
-    struct TransitiveGenerator{
-
-        public:
-
-            template <class Intermediate, class Derived, class NEXT_>
-            constexpr auto get(RecursiveInheritanceInfo<Intermediate, Derived, NEXT_>){
-
-                auto rs = TransitiveGenerator<Base>().get(NEXT_());
-
-                return Joiner<Base, Derived>().join(rs);
-
-            }
-
-            constexpr auto get(EOR){
-
-                return EOR();
-
-            }
-
-    };
-
-    template <class InheritanceInfo>
-    struct TransitiveInheritanceGetter{
-
-        public:
-
-            template <class Base, class Derived, class NEXT_>
-            constexpr auto get(RecursiveInheritanceInfo<Base, Derived, NEXT_>){
-
-                auto inter_inheritance = BaseSpecificInheritanceGetter<Derived>().get(InheritanceInfo());
-                auto trans_inheritance = TransitiveGenerator<Base>().get(inter_inheritance);
-                auto rs = TransitiveInheritanceGetter<InheritanceInfo>().get(NEXT_());
-
-                return Aggregator<decltype(rs), decltype(trans_inheritance)>().aggregate();
-
-            }
-
-            constexpr auto get(EOR){
-
-                return EOR();
-
-            }
-
-    };
-
-    template <class Base, class Derived>
-    struct InheritanceFinder{
-        
-        template <class _Base, class _Derived, class NEXT_>
-        constexpr bool is_in(RecursiveInheritanceInfo<_Base, _Derived, NEXT_>){
-
-            return InheritanceFinder<Base, Derived>().is_in(NEXT_()); 
-
-        }
-
-        template <class NEXT_>
-        constexpr bool is_in(RecursiveInheritanceInfo<Base, Derived, NEXT_>){
-
-            return true;
-
-        }
-
-        constexpr bool is_in(EOR){
-
-            return false;
-
-        }
-
-    };
-
-    struct InheritancePruner{
-
-        public:
-
-            template <class Base, class Derived, class NEXT_, class T1>
-            constexpr auto difference(RecursiveInheritanceInfo<Base, Derived, NEXT_>, T1){
-
-                auto rs = InheritancePruner().difference(NEXT_(), T1());
-
-                if constexpr(InheritanceFinder<Base, Derived>().is_in(T1())){
-
-                    return rs;
-
-                } else{
-
-                    return Joiner<Base, Derived>().join(rs); 
-
-                }
-    
-            }
-
-            template <class T1>
-            constexpr auto difference(EOR, T1){
-
-                return EOR();
-
-            }
-
-    };
-
-    struct StdInheritanceGenerator{
-
-        template <class ...Args>
-        constexpr auto get(PolyRegisteredClasses<Args...>){
-
-            auto pre_pruned = InheritanceParser<Args...>().parse();
-            auto transitive_list = TransitiveInheritanceGetter<decltype(pre_pruned)>().get(pre_pruned);
-            auto pruned = InheritancePruner().difference(pre_pruned, transitive_list);
-
-            return pruned;
-
-        }
-
-    };
-
-    template <class T>
-    struct IS_EOR{
-
-        static inline const bool value = false;
-
-    };
-
-    template <>
-    struct IS_EOR<EOR>{
-
-        static inline const bool value = true;
-
-    };
-
-    template <class T, template <class> class ResolverInitializer, class InheritanceInfo, class BaseType, class DerivedType, class NEXT_>    
-    struct DynamicTypeResolver{
-
-        using Self = DynamicTypeResolver<T, ResolverInitializer, InheritanceInfo, BaseType, DerivedType, NEXT_>;
-
-        template <class NEXT_BASE, class NEXT_DERIVED, class NEXT_NEXT>
-        constexpr auto get_next_resolver(RecursiveInheritanceInfo<NEXT_BASE, NEXT_DERIVED, NEXT_NEXT>){
-
-            return DynamicTypeResolver<T, ResolverInitializer, InheritanceInfo, NEXT_BASE, NEXT_DERIVED, NEXT_NEXT>();
-
-        }
-
-        template <class T1, class ...CB_Args>
-        bool type_resolve(T * ptr, DynamicTypeCallbackable<T1>& cb_obj, CB_Args&& ...cb_args) const{
-
-            if constexpr(!IS_EOR<NEXT_>::value){
-
-                constexpr auto next_resolver = Self().get_next_resolver(NEXT_());
-
-                return next_resolver.type_resolve(ptr, cb_obj, std::forward<CB_Args>(cb_args)...);
-
-            } else{
-
-                return false;
-
-            }
-
-        }  
-
-    };
-
-    template <class T, template <class> class ResolverInitializer, class InheritanceInfo, class DerivedType, class NEXT_>
-    struct DynamicTypeResolver<T, ResolverInitializer, InheritanceInfo, T, DerivedType, NEXT_>{
-
-        using Self = DynamicTypeResolver<T, ResolverInitializer, InheritanceInfo, T, DerivedType, NEXT_>;
-
-        template <class NEXT_BASE, class NEXT_DERIVED, class NEXT_NEXT>
-        constexpr auto get_next_resolver(RecursiveInheritanceInfo<NEXT_BASE, NEXT_DERIVED, NEXT_NEXT>){
-
-            return DynamicTypeResolver<T, ResolverInitializer, InheritanceInfo, NEXT_BASE, NEXT_DERIVED, NEXT_NEXT>(); 
-
-        }
-
-        template <class T1, class ...CB_Args>
-        bool type_resolve(T * ptr, DynamicTypeCallbackable<T1>& cb_obj, CB_Args&& ...cb_args) const{
-
-            DerivedType * derived_ptr = dynamic_cast<DerivedType *>(ptr);
-
-            if (derived_ptr == nullptr){
-
-                if constexpr(!IS_EOR<NEXT_>::value){
-                    
-                    constexpr auto next_resolver = Self().get_next_resolver(NEXT_());
-
-                    return next_resolver.type_resolve(ptr, cb_obj, std::forward<CB_Args>(cb_args)...);
-
-                } else{
-
-                    return false;
-
-                }
-
-            } else{
-                
-                constexpr auto resolver = ResolverInitializer<DerivedType>().get(InheritanceInfo());
-
-                if (!resolver.type_resolve(derived_ptr, cb_obj, std::forward<CB_Args>(cb_args)...)){
-
-                    auto cur_id = RecursiveInheritanceInfo<T, DerivedType, NEXT_>::id; 
-                    cb_obj.callback(derived_ptr, cur_id, std::forward<CB_Args>(cb_args)...);
-
-                }
-
-                return true;
-
-            }
-
-        }
-
-    };
-
-    struct IDResolver{
-
-        template <class Base, class Derived, class NEXT_, class T1, class ...CB_Args>
-        void resolve(RecursiveInheritanceInfo<Base, Derived, NEXT_>, DynamicTypeCallbackable<T1>& cb_obj, PolyClassIDType id, CB_Args&& ...cb_args) const{
-
-            if (RecursiveInheritanceInfo<Base, Derived, NEXT_>::id == id){
-
-                cb_obj.callback((Derived *){}, id, std::forward<CB_Args>(cb_args)...);
-
-            } else{
-
-                resolve(NEXT_(), cb_obj, id, std::forward<CB_Args>(cb_args)...);
-
-            }
-
-        }
-
-        template <class ...Args>
-        void resolve(EOR, Args&&...) const{
-
-            assert(false);
-
-        }
-
-    };
-
-    template <class T>
-    struct ResolverInitializer{
-
-        template <class Base, class Derived, class NEXT_>
-        constexpr auto get(RecursiveInheritanceInfo<Base, Derived, NEXT_>){
-
-            return DynamicTypeResolver<T, ResolverInitializer, RecursiveInheritanceInfo<Base, Derived, NEXT_>, Base, Derived, NEXT_>();
-
-        }
-
-    };
-
-    class StdDynamicTypeResolverController: public ForwardResolverControllable<StdDynamicTypeResolverController>,
-                                            public BackwardResolverControllable<StdDynamicTypeResolverController>{
-
-        public:
-
-            template <class T, class T1, class ...Args, class ...CB_Args>
-            void resolve(T * ptr, DynamicTypeCallbackable<T1>& cb_obj, PolyRegisteredClasses<Args...>&, CB_Args&& ...cb_args){
-                
-                constexpr auto inheritance_info = StdInheritanceGenerator().get(PolyRegisteredClasses<Args...>());
-                constexpr auto rec_resolver = ResolverInitializer<T>().get(inheritance_info);
-
-                if (!rec_resolver.type_resolve(ptr, cb_obj, std::forward<CB_Args>(cb_args)...)){
-
-                    cb_obj.callback(ptr, NOT_FOUND_ID, std::forward<CB_Args>(cb_args)...);
-
-                }
-
-            } 
-
-            template <class T, class T1, class ...Args, class ...CB_Args>
-            void resolve_w_id(T * ptr, PolyClassIDType id, DynamicTypeCallbackable<T1>& cb_obj, PolyRegisteredClasses<Args...>&, CB_Args&& ...cb_args){
-
-            constexpr auto inheritance_info = StdInheritanceGenerator().get(PolyRegisteredClasses<Args...>());
-            constexpr auto id_resolver = IDResolver();
-
-            if (id == NOT_FOUND_ID){
-
-                cb_obj.callback(ptr, NOT_FOUND_ID, std::forward<CB_Args>(cb_args)...);
-
-            } else{
-
-                id_resolver.resolve(inheritance_info, cb_obj, id, std::forward<CB_Args>(cb_args)...);
-
-            }
-
-        }
-
-    };
-
-
-    template <class T, class T1>
-    class StableAutoPolymorphicPtrForwardArchiver: public Archivable<StableAutoPolymorphicPtrForwardArchiver<T, T1>>,
-                                                   public DynamicTypeCallbackable<StableAutoPolymorphicPtrForwardArchiver<T, T1>>{
-
-        private:
-
-            std::shared_ptr<ForwardResolverControllable<T>> forward_resolver;
-            std::shared_ptr<BackwardResolverControllable<T1>> backward_resolver;
-        
-        public:
-
-            StableAutoPolymorphicPtrForwardArchiver(std::shared_ptr<ForwardResolverControllable<T>> forward_resolver, 
-                                                    std::shared_ptr<BackwardResolverControllable<T1>> backward_resolver){
-                
-                this->forward_resolver = forward_resolver;
-                this->backward_resolver = backward_resolver;
-                
-            }
-
-            template <class T, class T1>
-            void put(Archivable<T>& obj_archive, T1&& data){
-
-            }
-
-            template <class T>
-            constexpr bool is_archivable() const{
-
-            }
-            
-    };
-
-};
-
-namespace dg::serializer::pointer{
+namespace dg::serializer::pointer::static_pointer{
 
     template <class T>
     class StdPointerIDRegister: public PointerIDRegisterable<StdPointerIDRegister<T>>{
@@ -3555,6 +3059,848 @@ namespace dg::serializer::pointer{
             }
 
             
+    };
+
+};
+
+namespace dg::serializer::pointer::poly_pointer{
+
+    class EOR{};
+
+    template <class Base, class Derived, class NEXT_>
+    struct RecursiveInheritanceInfo{
+
+        static constexpr PolyClassIDType id = NEXT_::id + 1;
+
+    };
+
+    template <class Base, class Derived>
+    struct RecursiveInheritanceInfo<Base, Derived, EOR>{
+
+        static constexpr PolyClassIDType id = 1;
+
+    };
+
+    template <class NEXT_BASE, class NEXT_DERIVED>
+    struct Joiner{
+
+        template <class Base, class Derived, class NEXT_>
+        constexpr auto join(RecursiveInheritanceInfo<Base, Derived, NEXT_>){
+
+            return RecursiveInheritanceInfo<NEXT_BASE, NEXT_DERIVED, RecursiveInheritanceInfo<Base, Derived, NEXT_>>();
+
+        }
+
+        constexpr auto join(EOR){
+
+            return RecursiveInheritanceInfo<NEXT_BASE, NEXT_DERIVED, EOR>();
+
+        }
+
+    };
+
+    template <class CUR, class ...Args>
+    struct Aggregator{
+
+        template <class Base, class Derived, class NEXT_, class Cur_Inheritance>
+        constexpr auto traverse_n_join(RecursiveInheritanceInfo<Base, Derived, NEXT_>, Cur_Inheritance){
+            
+            auto joined = Joiner<Base, Derived>().join(Cur_Inheritance());
+
+            return traverse_n_join(NEXT_(), joined);
+
+        }
+        
+        template <class Cur_Inheritance>
+        constexpr auto traverse_n_join(EOR, Cur_Inheritance){
+
+            return Cur_Inheritance();
+
+        }
+
+        constexpr auto aggregate(){
+
+            auto base_aggregated = Aggregator<Args...>().aggregate();
+
+            return traverse_n_join(CUR(), base_aggregated);
+
+        }
+
+    };
+
+    template <class CUR>
+    struct Aggregator<CUR>{
+        
+        constexpr auto aggregate(){
+
+            return CUR();
+
+        }
+
+    };
+
+    template <class CUR, class NEXT, class ...Args>
+    struct TraverseParser{
+
+        constexpr auto parse(){
+
+            using next_parser = TraverseParser<CUR, Args...>;
+            auto tmp = next_parser().parse();
+
+            if constexpr(std::is_base_of<CUR, NEXT>::value){
+
+                return Joiner<CUR, NEXT>().join(tmp);
+
+            } else{
+
+                return tmp;
+
+            }
+
+        }
+
+        constexpr auto backward_parse(){
+
+            using next_parser = TraverseParser<CUR, Args...>;
+            auto tmp = next_parser().backward_parse();
+
+            if constexpr(std::is_base_of<NEXT, CUR>::value){
+
+                return Joiner<NEXT, CUR>().join(tmp);
+
+            } else{
+
+                return tmp;
+
+            }
+
+        }
+
+    };
+
+    template <class CUR, class NEXT>
+    struct TraverseParser<CUR, NEXT>{
+
+        constexpr auto parse(){
+
+            if constexpr(std::is_base_of<CUR, NEXT>::value){
+
+                return RecursiveInheritanceInfo<CUR, NEXT, EOR>();
+
+            } else{
+
+                return EOR();
+
+            }
+
+        }
+
+        constexpr auto backward_parse(){
+
+            if constexpr(std::is_base_of<NEXT, CUR>::value){
+
+                return RecursiveInheritanceInfo<NEXT, CUR, EOR>();
+
+            } else{
+
+                return EOR();
+
+            }
+
+        }
+    };
+
+    template <class CUR, class ...Args>
+    struct InheritanceParser{
+
+        constexpr auto parse(){
+
+            using next_parser = InheritanceParser<Args...>;
+            using traverse_parser = TraverseParser<CUR, Args...>; 
+
+            auto tmp = next_parser().parse(); 
+            auto fwd_lst = traverse_parser().parse();
+            auto bwd_lst = traverse_parser().backward_parse();
+
+            return Aggregator<decltype(tmp), decltype(fwd_lst), decltype(bwd_lst)>().aggregate(); 
+
+
+        };
+
+    };
+
+    template <class CUR>
+    struct InheritanceParser<CUR>{
+
+        constexpr auto parse(){
+
+            return EOR();
+
+        }
+
+    };
+
+    template <class Key_Base>
+    struct BaseSpecificInheritanceGetter{
+
+        public:
+
+            template <class Base, class Derived, class NEXT_>
+            constexpr auto get(RecursiveInheritanceInfo<Base, Derived, NEXT_>){
+
+                return BaseSpecificInheritanceGetter<Key_Base>().get(NEXT_());
+
+            }
+
+            template <class Derived, class NEXT_>
+            constexpr auto get(RecursiveInheritanceInfo<Key_Base, Derived, NEXT_>){
+
+                auto rs = BaseSpecificInheritanceGetter<Key_Base>().get(NEXT_());
+                
+                return Joiner<Key_Base, Derived>().join(rs); 
+
+            }
+
+            constexpr auto get(EOR){
+
+                return EOR();
+
+            }
+
+    };
+
+    template <class Base>
+    struct TransitiveGenerator{
+
+        public:
+
+            template <class Intermediate, class Derived, class NEXT_>
+            constexpr auto get(RecursiveInheritanceInfo<Intermediate, Derived, NEXT_>){
+
+                auto rs = TransitiveGenerator<Base>().get(NEXT_());
+
+                return Joiner<Base, Derived>().join(rs);
+
+            }
+
+            constexpr auto get(EOR){
+
+                return EOR();
+
+            }
+
+    };
+
+    template <class InheritanceInfo>
+    struct TransitiveInheritanceGetter{
+
+        public:
+
+            template <class Base, class Derived, class NEXT_>
+            constexpr auto get(RecursiveInheritanceInfo<Base, Derived, NEXT_>){
+
+                auto inter_inheritance = BaseSpecificInheritanceGetter<Derived>().get(InheritanceInfo());
+                auto trans_inheritance = TransitiveGenerator<Base>().get(inter_inheritance);
+                auto rs = TransitiveInheritanceGetter<InheritanceInfo>().get(NEXT_());
+
+                return Aggregator<decltype(rs), decltype(trans_inheritance)>().aggregate();
+
+            }
+
+            constexpr auto get(EOR){
+
+                return EOR();
+
+            }
+
+    };
+
+    template <class Base, class Derived>
+    struct InheritanceFinder{
+        
+        template <class _Base, class _Derived, class NEXT_>
+        constexpr bool is_in(RecursiveInheritanceInfo<_Base, _Derived, NEXT_>){
+
+            return InheritanceFinder<Base, Derived>().is_in(NEXT_()); 
+
+        }
+
+        template <class NEXT_>
+        constexpr bool is_in(RecursiveInheritanceInfo<Base, Derived, NEXT_>){
+
+            return true;
+
+        }
+
+        constexpr bool is_in(EOR){
+
+            return false;
+
+        }
+
+    };
+
+    struct InheritancePruner{
+
+        public:
+
+            template <class Base, class Derived, class NEXT_, class T1>
+            constexpr auto difference(RecursiveInheritanceInfo<Base, Derived, NEXT_>, T1){
+
+                auto rs = InheritancePruner().difference(NEXT_(), T1());
+
+                if constexpr(InheritanceFinder<Base, Derived>().is_in(T1())){
+
+                    return rs;
+
+                } else{
+
+                    return Joiner<Base, Derived>().join(rs); 
+
+                }
+    
+            }
+
+            template <class T1>
+            constexpr auto difference(EOR, T1){
+
+                return EOR();
+
+            }
+
+    };
+
+    struct StdInheritanceGenerator{
+
+        template <class ...Args>
+        constexpr auto get(PolyRegisteredClasses<Args...>){
+
+            auto pre_pruned = InheritanceParser<Args...>().parse();
+            auto transitive_list = TransitiveInheritanceGetter<decltype(pre_pruned)>().get(pre_pruned);
+            auto pruned = InheritancePruner().difference(pre_pruned, transitive_list);
+
+            return pruned;
+
+        }
+
+    };
+
+    template <class T>
+    struct IS_EOR{
+
+        static inline const bool value = false;
+
+    };
+
+    template <>
+    struct IS_EOR<EOR>{
+
+        static inline const bool value = true;
+
+    };
+
+    template <class T, template <class> class ResolverInitializer, class InheritanceInfo, class BaseType, class DerivedType, class NEXT_>    
+    struct DynamicTypeResolver{
+
+        using Self = DynamicTypeResolver<T, ResolverInitializer, InheritanceInfo, BaseType, DerivedType, NEXT_>;
+
+        template <class NEXT_BASE, class NEXT_DERIVED, class NEXT_NEXT>
+        constexpr auto get_next_resolver(RecursiveInheritanceInfo<NEXT_BASE, NEXT_DERIVED, NEXT_NEXT>){
+
+            return DynamicTypeResolver<T, ResolverInitializer, InheritanceInfo, NEXT_BASE, NEXT_DERIVED, NEXT_NEXT>();
+
+        }
+
+        template <class T1, class ...CB_Args>
+        bool type_resolve(T * ptr, DynamicTypeCallbackable<T1>& cb_obj, CB_Args&& ...cb_args) const{
+
+            if constexpr(!IS_EOR<NEXT_>::value){
+
+                constexpr auto next_resolver = Self().get_next_resolver(NEXT_());
+
+                return next_resolver.type_resolve(ptr, cb_obj, std::forward<CB_Args>(cb_args)...);
+
+            } else{
+
+                return false;
+
+            }
+
+        }  
+
+    };
+
+    template <class T, template <class> class ResolverInitializer, class InheritanceInfo, class DerivedType, class NEXT_>
+    struct DynamicTypeResolver<T, ResolverInitializer, InheritanceInfo, T, DerivedType, NEXT_>{
+
+        using Self = DynamicTypeResolver<T, ResolverInitializer, InheritanceInfo, T, DerivedType, NEXT_>;
+
+        template <class NEXT_BASE, class NEXT_DERIVED, class NEXT_NEXT>
+        constexpr auto get_next_resolver(RecursiveInheritanceInfo<NEXT_BASE, NEXT_DERIVED, NEXT_NEXT>){
+
+            return DynamicTypeResolver<T, ResolverInitializer, InheritanceInfo, NEXT_BASE, NEXT_DERIVED, NEXT_NEXT>(); 
+
+        }
+
+        template <class T1, class ...CB_Args>
+        bool type_resolve(T * ptr, DynamicTypeCallbackable<T1>& cb_obj, CB_Args&& ...cb_args) const{
+
+            DerivedType * derived_ptr = dynamic_cast<DerivedType *>(ptr);
+
+            if (derived_ptr == nullptr){
+
+                if constexpr(!IS_EOR<NEXT_>::value){
+                    
+                    constexpr auto next_resolver = Self().get_next_resolver(NEXT_());
+
+                    return next_resolver.type_resolve(ptr, cb_obj, std::forward<CB_Args>(cb_args)...);
+
+                } else{
+
+                    return false;
+
+                }
+
+            } else{
+                
+                constexpr auto resolver = ResolverInitializer<DerivedType>().get(InheritanceInfo());
+
+                if (!resolver.type_resolve(derived_ptr, cb_obj, std::forward<CB_Args>(cb_args)...)){
+
+                    auto cur_id = RecursiveInheritanceInfo<T, DerivedType, NEXT_>::id; 
+                    cb_obj.callback(derived_ptr, cur_id, std::forward<CB_Args>(cb_args)...);
+
+                }
+
+                return true;
+
+            }
+
+        }
+
+    };
+
+    struct IDResolver{
+
+        template <class Base, class Derived, class NEXT_, class T1, class ...CB_Args>
+        void resolve(RecursiveInheritanceInfo<Base, Derived, NEXT_>, DynamicTypeCallbackable<T1>& cb_obj, PolyClassIDType id, CB_Args&& ...cb_args) const{
+
+            if (RecursiveInheritanceInfo<Base, Derived, NEXT_>::id == id){
+
+                cb_obj.callback((Derived *){}, id, std::forward<CB_Args>(cb_args)...);
+
+            } else{
+
+                resolve(NEXT_(), cb_obj, id, std::forward<CB_Args>(cb_args)...);
+
+            }
+
+        }
+
+        template <class ...Args>
+        void resolve(EOR, Args&&...) const{
+
+            assert(false);
+
+        }
+
+    };
+
+    template <class T>
+    struct ResolverInitializer{
+
+        template <class Base, class Derived, class NEXT_>
+        constexpr auto get(RecursiveInheritanceInfo<Base, Derived, NEXT_>){
+
+            return DynamicTypeResolver<T, ResolverInitializer, RecursiveInheritanceInfo<Base, Derived, NEXT_>, Base, Derived, NEXT_>();
+
+        }
+
+    };
+
+    class StdDynamicTypeResolverController: public ForwardResolverControllable<StdDynamicTypeResolverController>,
+                                            public BackwardResolverControllable<StdDynamicTypeResolverController>{
+
+        public:
+
+            template <class T, class T1, class ...Args, class ...CB_Args>
+            void resolve(T * ptr, DynamicTypeCallbackable<T1>& cb_obj, const PolyRegisteredClasses<Args...>&, CB_Args&& ...cb_args){
+                
+                constexpr auto inheritance_info = StdInheritanceGenerator().get(PolyRegisteredClasses<Args...>());
+                constexpr auto rec_resolver = ResolverInitializer<T>().get(inheritance_info);
+
+                if (!rec_resolver.type_resolve(ptr, cb_obj, std::forward<CB_Args>(cb_args)...)){
+
+                    cb_obj.callback(ptr, NOT_FOUND_ID, std::forward<CB_Args>(cb_args)...);
+
+                }
+
+            } 
+
+            template <class T, class T1, class ...Args, class ...CB_Args>
+            void id_resolve(T * ptr, PolyClassIDType id, const DynamicTypeCallbackable<T1>& cb_obj, PolyRegisteredClasses<Args...>&, CB_Args&& ...cb_args){
+
+            constexpr auto inheritance_info = StdInheritanceGenerator().get(PolyRegisteredClasses<Args...>());
+            constexpr auto id_resolver = IDResolver();
+
+            if (id == NOT_FOUND_ID){
+
+                cb_obj.callback(ptr, NOT_FOUND_ID, std::forward<CB_Args>(cb_args)...);
+
+            } else{
+
+                id_resolver.resolve(inheritance_info, cb_obj, id, std::forward<CB_Args>(cb_args)...);
+
+            }
+
+        }
+
+    };
+
+    template <class T>
+    struct StableAutoPolymorphicPtrWrapperCheck{
+
+        static inline const bool value = false;
+
+    };
+
+    template <class T, class ...Args, class _Allocator_Policy>
+    struct StableAutoPolymorphicPtrWrapperCheck<StableAutoPolymorphicPtrWrapper<T, PolyRegisteredClasses<Args...>, _Allocator_Policy>>{
+
+        static inline const bool value = true;
+
+    };
+    
+    struct StableAutoPolyStablePtrUtility{
+
+        template <class T>
+        static constexpr bool is_auto_poly_stable_ptr(){
+
+            return StableAutoPolymorphicPtrWrapperCheck<T>::value;
+
+        }
+
+        template <class T, class ...Args, class _Allocator_Policy>
+        static T * get_ptr_value(StableAutoPolymorphicPtrWrapper<T, PolyRegisteredClasses<Args...>, _Allocator_Policy>& data){
+
+            return reinterpret_cast<T *>(data.ptr);
+
+        }
+
+        template <class T, class ...Args, class _Allocator_Policy>
+        static T *& get_ptr_ref(StableAutoPolymorphicPtrWrapper<T, PolyRegisteredClasses<Args...>, _Allocator_Policy>& data){
+
+            return data.ptr; 
+
+        }
+
+        template <class T, class ...Args, class _Allocator_Policy, class T1>
+        static void assign_ptr(StableAutoPolymorphicPtrWrapper<T, PolyRegisteredClasses<Args...>, _Allocator_Policy>& data, T1 * ptr){
+
+            data.ptr = dynamic_cast<T*>(ptr);
+
+        }
+
+    };
+
+    template <class T>
+    class StableAutoPolymorphicPtrForwardArchiver: public Archivable<StableAutoPolymorphicPtrForwardArchiver<T>>,
+                                                   public DynamicTypeCallbackable<StableAutoPolymorphicPtrForwardArchiver<T>>{
+
+        private:
+
+            std::shared_ptr<ForwardResolverControllable<T>> forward_resolver;
+        
+        public:
+
+            StableAutoPolymorphicPtrForwardArchiver(std::shared_ptr<ForwardResolverControllable<T>> forward_resolver){
+                
+                this->forward_resolver = forward_resolver;
+
+            }
+
+            template <class T1, class T2>
+            void put(Archivable<T1>& obj_archive, T2&& data){
+
+                using stripped_type_ref = typename dgstd::remove_reference<T2>::type&;
+
+                this->put_helper(obj_archive, reinterpret_cast<stripped_type_ref>(data));
+
+            }
+
+            template <class T1, class T2, class _Allocator_Policy>
+            void callback(T1 * ptr, PolyClassIDType id, Archivable<T2>& obj_archive, const _Allocator_Policy&){
+
+                StablePtrWrapper<T1, _Allocator_Policy> wrapper(ptr);
+                
+                obj_archive.put(obj_archive, id);
+                obj_archive.put(obj_archive, wrapper);
+
+            }
+
+            template <class T2>
+            constexpr bool is_archivable() const{
+
+                return StableAutoPolyStablePtrUtility::is_auto_poly_stable_ptr<T2>();
+
+            }
+
+        private:
+
+            template <class T1, class T2, class ...Args, class _Allocator_Policy>
+            void put_helper(Archivable<T1>& obj_archive, StableAutoPolymorphicPtrWrapper<T2, PolyRegisteredClasses<Args...>, _Allocator_Policy>& wrapper){
+                
+                constexpr auto classes = PolyRegisteredClasses<Args...>();
+                constexpr auto allocator = _Allocator_Policy();
+
+                T2 * ptr = StableAutoPolyStablePtrUtility::get_ptr_value(wrapper);
+                
+                this->forward_resolver->resolve(ptr, *this, classes, obj_archive, allocator);
+
+            }
+    };
+
+    template <class T>
+    class StableAutoPolymorphicPtrBackwardArchiver: public Archivable<StableAutoPolymorphicPtrBackwardArchiver<T>>,
+                                                    public DynamicTypeCallbackable<StableAutoPolymorphicPtrBackwardArchiver<T>>{
+
+        private:
+
+            std::shared_ptr<BackwardResolverControllable<T>> backward_resolver;
+        
+        public:
+
+            StableAutoPolymorphicPtrBackwardArchiver(std::shared_ptr<BackwardResolverControllable<T>> backward_resolver){
+
+                this->backward_resolver = backward_resolver;
+
+            }
+
+            template <class T1, class T2>
+            void put(Archivable<T1>& obj_archive, T2&& data){
+
+                using stripped_type_ref = dgstd::remove_reference<T2>::type&;
+
+                this->put_helper(obj_archive, reinterpret_cast<stripped_type_ref>(data));
+
+            }
+
+            template <class T1, class T2, class T3, class ...Args, class _Allocator_Policy>
+            void callback(T1 *, 
+                          PolyClassIDType, 
+                          Archivable<T2>& obj_archive, 
+                          StableAutoPolymorphicPtrWrapper<T3, PolyRegisteredClasses<Args...>, _Allocator_Policy>& wrapper){
+                
+                T1 * deserialized_ptr = nullptr; 
+
+                StablePtrWrapper<T1, _Allocator_Policy> stable_wrapper(deserialized_ptr);  
+                obj_archive.put(obj_archive, stable_wrapper);
+                StableAutoPolyStablePtrUtility::assign_ptr(wrapper, deserialized_ptr);
+
+            }
+
+            template <class T1>
+            constexpr bool is_archivable() const{
+
+                return StableAutoPolyStablePtrUtility::is_auto_poly_stable_ptr<T1>(); 
+
+            }
+
+        private:
+            
+            template <class T1, class T2, class ...Args, class _Allocator_Policy>
+            void put_helper(Archivable<T1>& obj_archive, StableAutoPolymorphicPtrWrapper<T2, PolyRegisteredClasses<Args...>, _Allocator_Policy>& wrapper){
+                
+                constexpr auto classes = PolyRegisteredClasses<Args...>();
+                PolyClassIDType id{};
+                T2 * ptr = nullptr; 
+
+                obj_archive.put(obj_archive, id);
+
+                this->backward_resolver->id_resolve(ptr, id, *this, classes, obj_archive, wrapper);
+
+            }
+
+    };
+
+    template <class T>
+    struct SmartPointerCheck{
+
+        static inline const bool value = false;
+
+    };
+
+    template <class T, class T1>
+    struct SmartPointerCheck<AutoPolymorphicSharedPtrWrapper<T, T1>>{
+
+        static inline const bool value = true;
+
+    };
+
+    template <class T, class T1>
+    struct SmartPointerCheck<AutoPolymorphicUniquePtrWrapper<T, T1>>{
+
+        static inline const bool value = true;
+
+    };
+
+    struct StableAutoPolySmartPtrUtility{
+
+        template <class T>
+        static constexpr bool is_auto_poly_smart_ptr(){
+
+            return SmartPointerCheck<T>::value;
+
+        }
+
+        template <class T, class T1>
+        static T * get_ptr_value(AutoPolymorphicSharedPtrWrapper<T, T1>& wrapper){
+
+            return reinterpret_cast<T *>(&*wrapper.ptr);
+
+        }
+
+        template <class T, class T1>
+        static T * get_ptr_value(AutoPolymorphicUniquePtrWrapper<T, T1>& wrapper){
+            
+            return reinterpret_cast<T *>(&*wrapper.ptr);
+
+        }
+
+        template <class T, class T1, class T2>
+        static void assign_ptr(AutoPolymorphicSharedPtrWrapper<T, T1>& wrapper, T2 * ptr){
+            
+            std::shared_ptr<T2>& ptr_ = SharedPtrGeneratorSingleton<T2>::get(ptr);
+            wrapper.ptr = std::dynamic_pointer_cast<T>(ptr_);
+
+        }
+
+        template <class T, class T1, class T2>
+        static void assign_ptr(AutoPolymorphicUniquePtrWrapper<T, T1>& wrapper, T2 * ptr){
+
+            wrapper.ptr = std::unique_ptr<T>(dynamic_cast<T *>(ptr));
+
+        }
+
+    };
+
+    class StableAutoPolymorphicSmartPtrForwardArchiver: public Archivable<StableAutoPolymorphicSmartPtrForwardArchiver>{
+
+        public:
+
+            template <class T, class T1>
+            void put(Archivable<T>& obj_archive, T1&& val){
+
+                using stripped_type_ref = dgstd::remove_reference<T1>::type&;
+
+                this->put_helper(obj_archive, reinterpret_cast<stripped_type_ref>(val)); 
+
+            }
+
+            template <class T>
+            constexpr bool is_archivable() const{
+                
+                return StableAutoPolySmartPtrUtility::is_auto_poly_smart_ptr<T>();
+
+            }
+
+        private:
+
+            template <class T, class T1, class RegisteredClasses>
+            void put_helper(Archivable<T>& obj_archive, AutoPolymorphicSharedPtrWrapper<T1, RegisteredClasses>& wrapper){
+
+                T1 * ptr_value = StableAutoPolySmartPtrUtility::get_ptr_value(wrapper);
+                StableAutoPolymorphicPtrWrapper<T1, RegisteredClasses, NewDeletePolicy> wrapper_wrapper(ptr_value);
+                obj_archive.put(obj_archive, wrapper_wrapper);
+
+            }
+            
+            template <class T, class T1, class RegisteredClasses>
+            void put_helper(Archivable<T>& obj_archive, AutoPolymorphicUniquePtrWrapper<T1, RegisteredClasses>& wrapper){
+
+                T1 * ptr_value = StableAutoPolySmartPtrUtility::get_ptr_value(wrapper);
+                StableAutoPolymorphicPtrWrapper<T1, RegisteredClasses, NewDeletePolicy> wrapper_wrapper(ptr_value);
+                obj_archive.put(obj_archive, wrapper_wrapper);
+
+            }
+
+    };
+    
+    template <class T>
+    class StableAutoPolymorphicSmartPtrBackwardArchiver: public Archivable<StableAutoPolymorphicSmartPtrBackwardArchiver<T>>,
+                                                         public DynamicTypeCallbackable<StableAutoPolymorphicSmartPtrBackwardArchiver<T>>{
+
+        private:
+
+            std::shared_ptr<BackwardResolverControllable<T>> backward_resolver;
+
+        public:
+
+            StableAutoPolymorphicSmartPtrBackwardArchiver(std::shared_ptr<BackwardResolverControllable<T>> backward_resolver){
+
+                this->backward_resolver = backward_resolver;
+
+            }
+
+            template <class T1, class T2>
+            void put(Archivable<T1>& obj_archive, T2&& val){
+
+                using stripped_type_ref = dgstd::remove_reference<T2>::type&;
+
+                this->put_helper(obj_archive, reinterpret_cast<stripped_type_ref>(val));
+
+            }
+
+            template <class T1, class T2, class T3>
+            void callback(T1 *, 
+                          PolyClassIDType, 
+                          Archivable<T2>& obj_archive, 
+                          T3&& wrapper){
+                
+                T1 * deserialized_ptr = nullptr; 
+
+                StablePtrWrapper<T1, NewDeletePolicy> stable_wrapper(deserialized_ptr);  
+                obj_archive.put(obj_archive, stable_wrapper);
+
+                StableAutoPolySmartPtrUtility::assign_ptr(std::forward<T3>(wrapper), deserialized_ptr);
+
+            }
+
+            template <class T1>
+            constexpr bool is_archivable() const{
+
+                return StableAutoPolySmartPtrUtility::is_auto_poly_smart_ptr<T1>();
+
+            }
+        
+        private:
+
+            template <class T1, class T2, class ...Args>
+            void put_helper(Archivable<T1>& obj_archive, AutoPolymorphicSharedPtrWrapper<T2, PolyRegisteredClasses<Args...>>& wrapper){
+                
+                constexpr auto classes = PolyRegisteredClasses<Args...>();
+                PolyClassIDType id{};
+                T2 * ptr = nullptr; 
+
+                obj_archive.put(obj_archive, id);
+
+                this->backward_resolver->id_resolve(ptr, id, *this, classes, obj_archive, wrapper);
+
+            }
+        
+            template <class T1, class T2, class ...Args>
+            void put_helper(Archivable<T1>& obj_archive, AutoPolymorphicUniquePtrWrapper<T2, PolyRegisteredClasses<Args...>>& wrapper){
+
+                constexpr auto classes = PolyRegisteredClasses<Args...>();
+                PolyClassIDType id{};
+                T2 * ptr = nullptr; 
+
+                obj_archive.put(obj_archive, id);
+
+                this->backward_resolver->id_resolve(ptr, id, *this, classes, obj_archive, wrapper);
+
+            }
+
     };
 
 };
