@@ -22,7 +22,7 @@ namespace dg::compact_serializer::types{
 
 namespace dg::compact_serializer::runtime_exception{
 
-    struct corrupted_data: std::exception{}; 
+    struct CorruptedError: std::exception{}; 
 }
 
 namespace dg::compact_serializer::types_space{
@@ -77,11 +77,17 @@ namespace dg::compact_serializer::types_space{
     template <class ...Args>
     struct is_set<std::set<Args...>>: std::true_type{};
 
+    template <class T>
+    struct is_basic_string: std::false_type{};
+
+    template <class ...Args>
+    struct is_basic_string<std::basic_string<Args...>>: std::true_type{};
+
     template <class T, class = void>
-    struct is_serializable: std::false_type{};
+    struct is_reflectible: std::false_type{};
 
     template <class T>
-    struct is_serializable<T, std::void_t<decltype(std::declval<T>().dg_reflect(nil_lambda))>>: std::true_type{};
+    struct is_reflectible<T, std::void_t<decltype(std::declval<T>().dg_reflect(nil_lambda))>>: std::true_type{};
     
     template <class T, class U, class = void>
     struct has_same_size: std::false_type{};
@@ -89,36 +95,21 @@ namespace dg::compact_serializer::types_space{
     template <class T, class U>
     struct has_same_size<T, U, std::void_t<std::enable_if_t<sizeof(T) == sizeof(U), bool>>>: std::true_type{};
 
-    template <class T>
-    using base_type = std::remove_const_t<std::remove_reference_t<T>>;
+    template <class T, class = void>
+    struct containee_type{};
 
     template <class T>
-    struct recursive_const_strip: std::remove_const<T>{}; 
-
-    template <class ...Args>
-    struct recursive_const_strip<std::pair<Args...>>{
-        using type = std::pair<typename recursive_const_strip<Args>::type...>;
-    };
-
-    template <class ...Args>
-    struct recursive_const_strip<std::tuple<Args...>>{
-        using type  = std::tuple<typename recursive_const_strip<Args>::type...>;
+    struct containee_type<T, std::void_t<std::enable_if_t<std::disjunction_v<is_vector<T>, is_unordered_set<T>, is_set<T>, is_basic_string<T>>, bool>>>{
+        using type  = typename T::value_type;
     };
 
     template <class T>
-    using recursive_const_strip_t   = typename recursive_const_strip<T>::type;
-
-    template <class ...Args>
-    static constexpr auto is_basic_string_convertible_(std::basic_string<Args...>&) -> std::true_type;
-
-    template <class T>
-    static constexpr auto is_basic_string_convertible_(T&&) -> std::false_type; 
+    struct containee_type<T, std::void_t<std::enable_if_t<std::disjunction_v<is_unordered_map<T>, is_map<T>>, bool>>>{
+        using type  = std::pair<typename T::key_type, typename T::mapped_type>;
+    };
 
     template <class T>
-    struct is_basic_string_convertile: decltype(is_basic_string_convertible_(std::declval<T&>())){}; 
-
-    template <class T>
-    static constexpr bool is_container_v    = std::disjunction_v<is_vector<T>, is_unordered_map<T>, is_unordered_set<T>, is_map<T>, is_set<T>, is_basic_string_convertile<T>>;
+    static constexpr bool is_container_v    = std::disjunction_v<is_vector<T>, is_unordered_map<T>, is_unordered_set<T>, is_map<T>, is_set<T>, is_basic_string<T>>;
 
     template <class T>
     static constexpr bool is_tuple_v        = is_tuple<T>::value; 
@@ -133,8 +124,10 @@ namespace dg::compact_serializer::types_space{
     static constexpr bool is_nillable_v     = is_unique_ptr_v<T> | is_optional_v<T>; 
 
     template <class T>
-    static constexpr bool is_serializable_v = is_serializable<T>::value;
+    static constexpr bool is_reflectible_v  = is_reflectible<T>::value;
 
+    template <class T>
+    using base_type                         = std::remove_const_t<std::remove_reference_t<T>>;
 }
 
 namespace dg::compact_serializer::utility{
@@ -249,7 +242,7 @@ namespace dg::compact_serializer::utility{
     }
 
     template <class T, std::enable_if_t<std::disjunction_v<types_space::is_vector<T>, 
-                                                           types_space::is_basic_string_convertile<T>>, bool> = true>
+                                                           types_space::is_basic_string<T>>, bool> = true>
     constexpr auto get_inserter(){
 
         auto inserter   = []<class U, class ...Args>(U&& container, Args&& ...args){
@@ -283,7 +276,6 @@ namespace dg::compact_serializer::utility{
         using pointee_type  = std::remove_reference_t<decltype(*lhs)>;
         lhs = {std::forward<Args>(args)...};
     }
-
 }
 
 namespace dg::compact_serializer::archive{
@@ -334,7 +326,7 @@ namespace dg::compact_serializer::archive{
             }
         }
 
-        template <class T, std::enable_if_t<types_space::is_serializable_v<types_space::base_type<T>>, bool> = true>
+        template <class T, std::enable_if_t<types_space::is_reflectible_v<types_space::base_type<T>>, bool> = true>
         void put(char *& buf, T&& data) const noexcept{
 
             auto _self      = Self(this->base_archive);
@@ -389,8 +381,8 @@ namespace dg::compact_serializer::archive{
         template <class T, std::enable_if_t<types_space::is_container_v<types_space::base_type<T>>, bool> = true>
         void put(const char *& buf, T&& data) const{
             
-            using btype     = typename types_space::base_type<T>;
-            using elem_type = types_space::recursive_const_strip_t<typename btype::value_type>;
+            using btype     = types_space::base_type<T>;
+            using elem_type = types_space::containee_type<btype>::type;
             auto sz         = types::size_type{}; 
             auto isrter     = utility::get_inserter<btype>();
 
@@ -404,7 +396,7 @@ namespace dg::compact_serializer::archive{
             }
         }
 
-        template <class T, std::enable_if_t<types_space::is_serializable_v<types_space::base_type<T>>, bool> = true>
+        template <class T, std::enable_if_t<types_space::is_reflectible_v<types_space::base_type<T>>, bool> = true>
         void put(const char *& buf, T&& data) const{
 
             auto archiver   = [&buf]<class ...Args>(Args&& ...args){ //REVIEW: rm [&]
@@ -414,7 +406,6 @@ namespace dg::compact_serializer::archive{
             data.dg_reflect(archiver);
         }
     };
-
 }
 
 namespace dg::compact_serializer::core{
@@ -480,7 +471,7 @@ namespace dg::compact_serializer::core{
     auto integrity_deserialize(const char * buf, size_t sz, T& obj) -> const char * {
 
         if (sz < sizeof(types::hash_type)){
-            throw runtime_exception::corrupted_data{};
+            throw runtime_exception::CorruptedError{};
         }
 
         using _MemIO    = utility::SyncedEndiannessService;
@@ -489,12 +480,11 @@ namespace dg::compact_serializer::core{
         auto data_sz    = sz - sizeof(types::hash_type);
 
         if (utility::hash(data, data_sz) != hash_val){
-            throw runtime_exception::corrupted_data{};
+            throw runtime_exception::CorruptedError{};
         }
 
         return deserialize(data, obj);
     }
-
 }
 
 namespace dg::compact_serializer{
