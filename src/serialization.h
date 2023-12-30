@@ -101,6 +101,12 @@ namespace dg::compact_serializer::types_space{
     struct has_same_size<T, U, std::void_t<std::enable_if_t<sizeof(T) == sizeof(U), bool>>>: std::true_type{};
 
     template <class T, class = void>
+    struct is_dg_arithmetic: std::is_arithmetic<T>{};
+
+    template <class T>
+    struct is_dg_arithmetic<T, std::void_t<std::enable_if_t<std::is_floating_point_v<T>>>>: std::bool_constant<std::numeric_limits<T>::is_iec559>{}; 
+
+    template <class T, class = void>
     struct containee_type{};
 
     template <class T>
@@ -135,7 +141,7 @@ namespace dg::compact_serializer::types_space{
     using base_type                         = std::remove_const_t<std::remove_reference_t<T>>;
 
     template <class T>
-    static constexpr bool is_dg_arithmetic_v    = std::is_arithmetic_v<T> && (!std::is_floating_point_v<T> || std::numeric_limits<T>::is_iec559);   
+    static constexpr bool is_dg_arithmetic_v    = is_dg_arithmetic<T>::value;
 }
 
 namespace dg::compact_serializer::utility{
