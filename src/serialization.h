@@ -14,6 +14,11 @@
 #include <optional>
 #include <numeric>
 
+namespace dg::compact_serializer::constants{
+
+    static constexpr auto endianness    = std::endian::little;
+}
+
 namespace dg::compact_serializer::types{
 
     using hash_type     = uint64_t; 
@@ -35,11 +40,11 @@ namespace dg::compact_serializer::types_space{
     template <class T>
     struct is_tuple<T, std::void_t<decltype(std::tuple_size<T>::value)>>: std::true_type{};
 
-    template <class T>
+    template <class T, class = void>
     struct is_unique_ptr: std::false_type{};
 
     template <class T>
-    struct is_unique_ptr<std::unique_ptr<T>>: std::true_type{}; 
+    struct is_unique_ptr<std::unique_ptr<T>, std::void_t<std::enable_if_t<!std::is_array_v<T>>>>: std::true_type{}; 
 
     template <class T>
     struct is_optional: std::false_type{};
@@ -99,12 +104,12 @@ namespace dg::compact_serializer::types_space{
     struct containee_type{};
 
     template <class T>
-    struct containee_type<T, std::void_t<std::enable_if_t<std::disjunction_v<is_vector<T>, is_unordered_set<T>, is_set<T>, is_basic_string<T>>, bool>>>{
+    struct containee_type<T, std::void_t<std::enable_if_t<std::disjunction_v<is_vector<T>, is_unordered_set<T>, is_set<T>, is_basic_string<T>>>>>{
         using type  = typename T::value_type;
     };
 
     template <class T>
-    struct containee_type<T, std::void_t<std::enable_if_t<std::disjunction_v<is_unordered_map<T>, is_map<T>>, bool>>>{
+    struct containee_type<T, std::void_t<std::enable_if_t<std::disjunction_v<is_unordered_map<T>, is_map<T>>>>>{
         using type  = std::pair<typename T::key_type, typename T::mapped_type>;
     };
 
@@ -128,6 +133,9 @@ namespace dg::compact_serializer::types_space{
 
     template <class T>
     using base_type                         = std::remove_const_t<std::remove_reference_t<T>>;
+
+    template <class T>
+    static constexpr bool is_dg_arithmetic_v    = std::is_arithmetic_v<T> && (!std::is_floating_point_v<T> || std::numeric_limits<T>::is_iec559);   
 }
 
 namespace dg::compact_serializer::utility{
@@ -139,7 +147,7 @@ namespace dg::compact_serializer::utility{
         static constexpr auto is_native_big      = bool{std::endian::native == std::endian::big};
         static constexpr auto is_native_little   = bool{std::endian::native == std::endian::little};
         static constexpr auto precond            = bool{(is_native_big ^ is_native_little) != 0};
-        static constexpr auto deflt              = std::endian::little; 
+        static constexpr auto deflt              = constants::endianness; 
         static constexpr auto native_uint8       = is_native_big ? uint8_t{0} : uint8_t{1}; 
 
         static_assert(precond); //xor
@@ -288,7 +296,7 @@ namespace dg::compact_serializer::archive{
 
         Forward(BaseArchive base_archive): base_archive(base_archive){} 
 
-        template <class T, std::enable_if_t<std::is_arithmetic_v<types_space::base_type<T>>, bool> = true>
+        template <class T, std::enable_if_t<types_space::is_dg_arithmetic_v<types_space::base_type<T>>, bool> = true>
         void put(char *& buf, T&& data) const noexcept{
             
             static_assert(noexcept(this->base_archive(buf, std::forward<T>(data))));
@@ -342,7 +350,7 @@ namespace dg::compact_serializer::archive{
 
         using Self  = Backward;
 
-        template <class T, std::enable_if_t<std::is_arithmetic_v<types_space::base_type<T>>, bool> = true>
+        template <class T, std::enable_if_t<types_space::is_dg_arithmetic_v<types_space::base_type<T>>, bool> = true>
         void put(const char *& buf, T&& data) const{
 
             using btype     = types_space::base_type<T>;
