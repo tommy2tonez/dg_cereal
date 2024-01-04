@@ -50,7 +50,6 @@ int main(){
     //let U be the set of all involving types, serialization is defined when U c {arithmetics, std::unique_ptr<T>, std::optional, std tuple-like objects(tuple, pair, array),
     //std::vector, std::unordered_map, std::map, std::unordered_set, std::set, std alias of std::basic_string<Args...>, exclusive (*) reflectible} 
     //(*) is and only is reflectible
-    std::cout << dg::compact_serializer::types_space::is_dg_arithmetic_v<double>;
     
     Bar bar{std::nullopt, {{1, 2}, {2, 3}}, {1, 2, {2, 3}}, "b"};
 

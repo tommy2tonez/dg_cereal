@@ -159,25 +159,19 @@ namespace dg::compact_serializer::utility{
         static_assert(precond); //xor
 
         template <class T, std::enable_if_t<std::is_arithmetic_v<T>, bool> = true>
-        static constexpr T bswap(T value){
+        static inline T bswap(T value){
             
-            constexpr auto LOWER_BIT_MASK   = ~char{0};
-            constexpr auto idx_seq          = std::make_index_sequence<sizeof(T)>();
-            T rs{};
-
-            [&]<size_t ...IDX>(const std::index_sequence<IDX...>&){
-                (
-                    [&](size_t){
-
-                        rs <<= CHAR_BIT;
-                        rs |= value & LOWER_BIT_MASK;
-                        value >>= CHAR_BIT;
-
-                    }(IDX), ...
-                );
+            char src[sizeof(T)]; 
+            char dst[sizeof(T)];
+            const auto idx_seq  = std::make_index_sequence<sizeof(T)>();
+            
+            std::memcpy(src, &value, sizeof(T));
+            [&]<size_t ...IDX>(const std::index_sequence<IDX...>){
+                ((dst[IDX] = src[sizeof(T) - IDX - 1]), ...);
             }(idx_seq);
+            std::memcpy(&value, dst, sizeof(T));
 
-            return rs;
+            return value;
         }
 
         template <class T, std::enable_if_t<std::is_arithmetic_v<T>, bool> = true>
@@ -204,7 +198,6 @@ namespace dg::compact_serializer::utility{
         }
 
         static inline const auto bswap_lambda   = []<class ...Args>(Args&& ...args){return bswap(std::forward<Args>(args)...);}; 
-
     };
 
     //not working for double/ float 
