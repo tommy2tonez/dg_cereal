@@ -106,18 +106,11 @@ namespace dg::compact_serializer::types_space{
     template <class T>
     struct is_dg_arithmetic<T, std::void_t<std::enable_if_t<std::is_floating_point_v<T>>>>: std::bool_constant<std::numeric_limits<T>::is_iec559>{}; 
 
-    template <class T, class = void>
-    struct containee_type{};
+    template <class T, std::enable_if_t<std::disjunction_v<is_vector<T>, is_unordered_set<T>, is_set<T>, is_basic_string<T>>, bool> = true>
+    auto containee_type() -> typename T::value_type;
 
-    template <class T>
-    struct containee_type<T, std::void_t<std::enable_if_t<std::disjunction_v<is_vector<T>, is_unordered_set<T>, is_set<T>, is_basic_string<T>>>>>{
-        using type  = typename T::value_type;
-    };
-
-    template <class T>
-    struct containee_type<T, std::void_t<std::enable_if_t<std::disjunction_v<is_unordered_map<T>, is_map<T>>>>>{
-        using type  = std::pair<typename T::key_type, typename T::mapped_type>;
-    };
+    template <class T, std::enable_if_t<std::disjunction_v<is_unordered_map<T>, is_map<T>>, bool> = true>
+    auto containee_type() -> std::pair<typename T::key_type, typename T::mapped_type>;
 
     template <class T>
     static constexpr bool is_container_v    = std::disjunction_v<is_vector<T>, is_unordered_map<T>, is_unordered_set<T>, is_map<T>, is_set<T>, is_basic_string<T>>;
@@ -389,7 +382,7 @@ namespace dg::compact_serializer::archive{
         void put(const char *& buf, T&& data) const{
             
             using btype     = types_space::base_type<T>;
-            using elem_type = types_space::containee_type<btype>::type;
+            using elem_type = decltype(types_space::containee_type<btype>());
             auto sz         = types::size_type{}; 
             auto isrter     = utility::get_inserter<btype>();
 
