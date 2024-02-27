@@ -9,7 +9,7 @@ struct Foo{
     std::vector<size_t> c;
 
     template <class Archive>
-    void dg_reflect(const Archive& arch) const{
+    void dg_reflect(const Archive& arch) const noexcept{
         arch(a,b,c);
     }
 
@@ -29,19 +29,20 @@ struct Bar{
     std::unordered_map<size_t, size_t> b;
     Foo c;
     std::string d;
+    std::unique_ptr<double> e;
 
     template <class Archive>
-    void dg_reflect(const Archive& arch) const{
-        arch(a,b,c,d);
+    void dg_reflect(const Archive& arch) const noexcept{
+        arch(a,b,c,d,e);
     }
 
     template <class Archive>
     void dg_reflect(const Archive& arch){
-        arch(a,b,c,d);
+        arch(a,b,c,d,e);
     }
 
     bool operator ==(const Bar& other) const{
-        return std::tie(a,b,c,d) == std::tie(other.a, other.b, other.c, other.d);
+        return std::tie(a,b,c,d,*e) == std::tie(other.a, other.b, other.c, other.d, *other.e);
     }
 };
 
@@ -51,7 +52,7 @@ int main(){
     //std::vector, std::unordered_map, std::map, std::unordered_set, std::set, std alias of std::basic_string<Args...>, exclusive (*) reflectible} 
     //(*) is and only is reflectible
     
-    Bar bar{std::nullopt, {{1, 2}, {2, 3}}, {1, 2, {2, 3}}, "b"};
+    Bar bar{std::nullopt, {{1, 2}, {2, 3}}, {1, 2, {2, 3}}, "b", std::make_unique<double>(2)};
 
     auto serialized     = dg::compact_serializer::serialize(bar);
     auto deserialized   = dg::compact_serializer::deserialize<Bar>(serialized.first.get(), serialized.second);

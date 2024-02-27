@@ -40,11 +40,11 @@ namespace dg::compact_serializer::types_space{
     template <class T>
     struct is_tuple<T, std::void_t<decltype(std::tuple_size<T>::value)>>: std::true_type{};
 
-    template <class T, class = void>
+    template <class T>
     struct is_unique_ptr: std::false_type{};
 
     template <class T>
-    struct is_unique_ptr<std::unique_ptr<T>, std::void_t<std::enable_if_t<!std::is_array_v<T>>>>: std::true_type{}; 
+    struct is_unique_ptr<std::unique_ptr<T>>: std::bool_constant<!std::is_array_v<T>>{}; 
 
     template <class T>
     struct is_optional: std::false_type{};
@@ -245,19 +245,21 @@ namespace dg::compact_serializer::utility{
                                                            types_space::is_basic_string<T>>, bool> = true>
     constexpr auto get_inserter(){
 
-        auto inserter   = []<class U, class ...Args>(U&& container, Args&& ...args){
-            container.push_back(std::forward<Args>(args)...);
+        auto inserter   = []<class U, class K>(U&& container, K&& arg){
+            container.push_back(std::forward<K>(arg));
         };
 
         return inserter;
     }
 
-    template <class T, std::enable_if_t<std::disjunction_v<types_space::is_unordered_map<T>, types_space::is_unordered_set<T>, 
-                                                           types_space::is_map<T>, types_space::is_set<T>>, bool> = true>
+    template <class T, std::enable_if_t<std::disjunction_v<types_space::is_unordered_map<T>, 
+                                                           types_space::is_unordered_set<T>, 
+                                                           types_space::is_map<T>, 
+                                                           types_space::is_set<T>>, bool> = true>
     constexpr auto get_inserter(){ 
 
-        auto inserter   = []<class U, class ...Args>(U&& container, Args&& ...args){
-            container.insert(std::forward<Args>(args)...);
+        auto inserter   = []<class U, class K>(U&& container, K&& args){
+            container.insert(std::forward<K>(args));
         };
 
         return inserter;
@@ -298,9 +300,9 @@ namespace dg::compact_serializer::archive{
         template <class T, std::enable_if_t<types_space::is_nillable_v<types_space::base_type<T>>, bool> = true>
         void put(char *& buf, T&& data) const noexcept{
 
-            put(buf, bool{data});
+            put(buf, static_cast<bool>(data));
 
-            if (bool{data}){
+            if (data){
                 put(buf, *data);
             }
         }
@@ -330,10 +332,11 @@ namespace dg::compact_serializer::archive{
         void put(char *& buf, T&& data) const noexcept{
 
             auto _self      = Self(this->base_archive);
-            auto archiver   = [=, &buf]<class ...Args>(Args&& ...args){ //REVIEW: rm [&]
+            auto archiver   = [=, &buf]<class ...Args>(Args&& ...args) noexcept{
                 (_self.put(buf, std::forward<Args>(args)), ...);
             };
 
+            static_assert(noexcept(data.dg_reflect(archiver)));
             data.dg_reflect(archiver);
         }
     };
@@ -363,7 +366,7 @@ namespace dg::compact_serializer::archive{
                 put(buf, obj);
                 utility::initialize(std::forward<T>(data), std::move(obj));
             } else{
-                data    = {};
+                data = {};
             }
         }
 
@@ -399,7 +402,7 @@ namespace dg::compact_serializer::archive{
         template <class T, std::enable_if_t<types_space::is_reflectible_v<types_space::base_type<T>>, bool> = true>
         void put(const char *& buf, T&& data) const{
 
-            auto archiver   = [&buf]<class ...Args>(Args&& ...args){ //REVIEW: rm [&]
+            auto archiver   = [&buf]<class ...Args>(Args&& ...args){
                 (Self().put(buf, std::forward<Args>(args)), ...);
             };
 
